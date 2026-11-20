@@ -1138,6 +1138,7 @@ export default function App() {
                   <Stage3Documents
                     documents={state.documents}
                     trialBalanceCount={state.trialBalanceRows.length}
+                    mappedAccounts={state.mappedAccounts}
                     financials={state.financials}
                     onAddDocument={(doc) =>
                       updateActiveWorkspace((prev) => ({
@@ -1154,6 +1155,7 @@ export default function App() {
                     onTrialBalanceParsed={(rows) =>
                       handleTrialBalanceLoaded(rows)
                     }
+                    onMappingsUpdated={handleMappingsUpdated}
                     onPrev={() => setStage(2)}
                     onNext={() => setStage(4)}
                   />
@@ -1229,6 +1231,7 @@ export default function App() {
                     entity={state.entity}
                     declaration={state.declaration}
                     financials={state.financials}
+                    detailedLines={state.detailedLines}
                     statements={statements}
                     payment={state.payment}
                     onPrev={() => setStage(6)}

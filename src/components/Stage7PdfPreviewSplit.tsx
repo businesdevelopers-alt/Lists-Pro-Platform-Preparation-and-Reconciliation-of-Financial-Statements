@@ -19,19 +19,24 @@ import type {
   FinancialInputsHalalas,
   LegalDeclaration,
   PaymentAndInvoice,
+  WizardDetailedLines,
 } from '../types/qawaem';
 import {
   QAWAEM_TAXONOMY,
   formatNumber,
   formatSar,
-  getAuditorExemptionInfo,
 } from '../utils/accounting';
+import {
+  OfficialQawaemPackage,
+  type OfficialQawaemPageFilter,
+} from './OfficialQawaemPackage';
 import { ZatcaTaxInvoice } from './ZatcaTaxInvoice';
 
 interface Stage7PdfPreviewSplitProps {
   entity: EntityProfile;
   declaration: LegalDeclaration;
   financials: FinancialInputsHalalas;
+  detailedLines?: WizardDetailedLines;
   statements: ComputedStatements;
   payment: PaymentAndInvoice;
   docxLoading: boolean;
@@ -43,12 +48,12 @@ interface Stage7PdfPreviewSplitProps {
 }
 
 type PreviewDocKind = 'socpa_package' | 'zatca_invoice';
-type PageFocus = 'all' | 1 | 2 | 3;
 
 export const Stage7PdfPreviewSplit: React.FC<Stage7PdfPreviewSplitProps> = ({
   entity,
   declaration,
   financials,
+  detailedLines,
   statements,
   payment,
   docxLoading,
@@ -59,13 +64,11 @@ export const Stage7PdfPreviewSplit: React.FC<Stage7PdfPreviewSplitProps> = ({
   onGoToPayment,
 }) => {
   const [docKind, setDocKind] = useState<PreviewDocKind>('socpa_package');
-  const [pageFocus, setPageFocus] = useState<PageFocus>('all');
+  const [pageFocus, setPageFocus] = useState<OfficialQawaemPageFilter>('all');
   const [zoomPercent, setZoomPercent] = useState<75 | 90 | 100>(90);
   const [showMarginGuides, setShowMarginGuides] = useState<boolean>(true);
   const [lineSearch, setLineSearch] = useState<string>('');
   const [verifiedAck, setVerifiedAck] = useState<boolean>(false);
-
-  const exemption = getAuditorExemptionInfo(entity.classification);
 
   const readinessChecks = useMemo(
     () => [
@@ -87,9 +90,9 @@ export const Stage7PdfPreviewSplit: React.FC<Stage7PdfPreviewSplitProps> = ({
       },
       {
         id: 'chk-declaration',
-        label: 'الإقرار والتوقيع الإلكتروني',
+        label: 'إقرار المادة 19 والتوقيع الإلكتروني',
         detail: declaration.otpVerified
-          ? `موقّع: ${declaration.signatoryName || 'المدير المفوض'}`
+          ? `موقّع: ${declaration.signatoryName || 'مدير الشركة'}`
           : 'بانتظار استكمال التوقيع في المرحلة 2',
         ok: declaration.otpVerified && Boolean(declaration.signatureDataUrl),
       },
@@ -118,11 +121,10 @@ export const Stage7PdfPreviewSplit: React.FC<Stage7PdfPreviewSplitProps> = ({
 
   const activeFileName =
     docKind === 'socpa_package'
-      ? `SOCPA_Statements_${entity.crNumber || 'entity'}_${entity.fiscalYearLabel}.pdf`
+      ? `Qawaem_SOCPA_${entity.crNumber || 'entity'}_${entity.fiscalYearLabel}.pdf`
       : `ZATCA_Invoice_${payment.invoiceNumber || entity.crNumber}.pdf`;
 
-  const totalPages = docKind === 'socpa_package' ? 3 : 1;
-
+  const totalPages = docKind === 'socpa_package' ? 6 : 1;
   const zoomScale = zoomPercent / 100;
 
   return (
@@ -137,11 +139,11 @@ export const Stage7PdfPreviewSplit: React.FC<Stage7PdfPreviewSplitProps> = ({
                 لوحة التحقق قبل التصدير النهائي
               </h2>
               <span className="text-[11px] font-mono-num text-slate-500">
-                {totalPages === 1 ? 'صفحة 1' : '3 صفحات A4'}
+                {totalPages === 1 ? 'صفحة 1' : '6 صفحات A4 رسمية'}
               </span>
             </div>
             <p className="text-xs text-slate-500 leading-relaxed">
-              راجع مطابقة الأرقام وهوية المنشأة وهوامش صفحات PDF في نافذة المعاينة المجاورة قبل تأكيد التحميل.
+              راجع مطابقة الإقرار السنوي (المادة 19) والقوائم المالية الأربع بتنسيق قوائم الرسمي قبل تأكيد التحميل أو الطباعة.
             </p>
 
             <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-lg">
@@ -158,7 +160,7 @@ export const Stage7PdfPreviewSplit: React.FC<Stage7PdfPreviewSplitProps> = ({
                 }`}
               >
                 <FileText className="w-3.5 h-3.5 shrink-0" />
-                <span>القوائم (SOCPA)</span>
+                <span>القوائم الرسمية (6 صفحات)</span>
               </button>
               <button
                 type="button"
@@ -217,7 +219,7 @@ export const Stage7PdfPreviewSplit: React.FC<Stage7PdfPreviewSplitProps> = ({
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-bold text-slate-700">
-                خيارات معاينة التنسيق
+                التنقل بين صفحات المخرج النهائي
               </span>
               <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none">
                 <input
@@ -232,12 +234,17 @@ export const Stage7PdfPreviewSplit: React.FC<Stage7PdfPreviewSplitProps> = ({
 
             {docKind === 'socpa_package' && (
               <div className="flex flex-wrap gap-1.5">
-                {[
-                  { id: 'all' as const, label: 'كل الصفحات (3)' },
-                  { id: 1 as const, label: 'ص 1: المركز المالي' },
-                  { id: 2 as const, label: 'ص 2: قائمة الدخل' },
-                  { id: 3 as const, label: 'ص 3: الحقوق والتدفقات' },
-                ].map((pg) => (
+                {(
+                  [
+                    { id: 'all', label: 'كل الصفحات (6)' },
+                    { id: 1, label: 'ص 1: إقرار المادة 19' },
+                    { id: 2, label: 'ص 2: المركز المالي (1)' },
+                    { id: 3, label: 'ص 3: المركز المالي (2)' },
+                    { id: 4, label: 'ص 4: الدخل الشامل' },
+                    { id: 5, label: 'ص 5: حقوق الملكية' },
+                    { id: 6, label: 'ص 6: التدفقات النقدية' },
+                  ] as Array<{ id: OfficialQawaemPageFilter; label: string }>
+                ).map((pg) => (
                   <button
                     key={String(pg.id)}
                     type="button"
@@ -277,7 +284,7 @@ export const Stage7PdfPreviewSplit: React.FC<Stage7PdfPreviewSplitProps> = ({
               />
             </div>
 
-            <div className="max-h-[250px] overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
+            <div className="max-h-[240px] overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
               {filteredTaxonomy.map((item) => (
                 <div
                   key={item.id}
@@ -419,19 +426,17 @@ export const Stage7PdfPreviewSplit: React.FC<Stage7PdfPreviewSplitProps> = ({
         </div>
 
         {/* Scrollable A4 Paper Canvas */}
-        <div className="flex-1 max-h-[780px] overflow-y-auto overflow-x-auto p-5 sm:p-6 space-y-6 bg-slate-800/80">
+        <div className="flex-1 max-h-[820px] overflow-y-auto overflow-x-auto p-5 sm:p-6 bg-slate-800/80">
           {docKind === 'zatca_invoice' ? (
             <div
               className="mx-auto transition-transform origin-top"
               style={{
-                width: `${Math.round(720 * zoomScale)}px`,
+                width: `${Math.round(740 * zoomScale)}px`,
               }}
             >
               <div
                 className={`bg-white text-slate-900 shadow-2xl rounded-sm overflow-hidden ${
-                  showMarginGuides
-                    ? 'p-5 ring-1 ring-slate-300'
-                    : 'p-4'
+                  showMarginGuides ? 'p-5 ring-1 ring-slate-300' : 'p-4'
                 }`}
               >
                 <div
@@ -451,639 +456,18 @@ export const Stage7PdfPreviewSplit: React.FC<Stage7PdfPreviewSplitProps> = ({
               </div>
             </div>
           ) : (
-            <div className="space-y-6">
-              {/* PAGE 1: Cover, Management Report & Balance Sheet */}
-              {(pageFocus === 'all' || pageFocus === 1) && (
-                <div
-                  className="mx-auto bg-white text-slate-900 shadow-2xl rounded-sm transition-all"
-                  style={{
-                    width: `${Math.round(720 * zoomScale)}px`,
-                    minHeight: `${Math.round(980 * zoomScale)}px`,
-                    padding: `${Math.round(36 * zoomScale)}px`,
-                  }}
-                >
-                  <div
-                    className={`h-full flex flex-col justify-between gap-6 ${
-                      showMarginGuides
-                        ? 'border border-dashed border-sky-300/80 p-4'
-                        : ''
-                    }`}
-                  >
-                    <div className="space-y-5">
-                      {!payment.paid && (
-                        <div className="px-3 py-1.5 bg-amber-50 border border-amber-200 text-amber-900 text-[11px] font-semibold flex items-center justify-between">
-                          <span>حالة المستند: نسخة معاينة قبل إتمام السداد</span>
-                          <span>قوائم برو</span>
-                        </div>
-                      )}
-
-                      {/* Cover Header */}
-                      <div className="flex items-start justify-between gap-4 border-b border-slate-200 pb-4">
-                        <div className="space-y-1">
-                          <div className="text-[11px] font-semibold text-emerald-800">
-                            المملكة العربية السعودية · القوائم المالية السنوية (SOCPA SMEs)
-                          </div>
-                          <h3 className="text-lg font-bold text-slate-900">
-                            {entity.entityName}
-                          </h3>
-                          <div className="text-[11px] text-slate-600">
-                            {entity.legalForm} · سجل تجاري{' '}
-                            <span className="font-mono-num">
-                              {entity.crNumber}
-                            </span>{' '}
-                            · {entity.city}
-                          </div>
-                        </div>
-                        <div className="text-[11px] text-slate-600 text-left shrink-0">
-                          <div>السنة المالية المنتهية في</div>
-                          <div className="font-mono-num font-bold text-slate-900 text-xs">
-                            {entity.fiscalYearLabel}-{entity.fiscalYearEnd}
-                          </div>
-                          <div>العملة: الريال السعودي (ر.س)</div>
-                        </div>
-                      </div>
-
-                      {/* Management Report Box */}
-                      <div className="p-3.5 rounded bg-slate-50 border border-slate-200 space-y-2 text-[11px] text-slate-700 leading-relaxed">
-                        <div className="font-bold text-slate-900">
-                          تقرير الإدارة والوضع النظامي للمراجعة
-                        </div>
-                        <p>
-                          تقدم إدارة {entity.entityName} القوائم المالية المعدّة وفق معيار التقرير المالي للمنشآت الصغيرة ومتوسطة الحجم المعتمد من الهيئة السعودية للمراجعين والمحاسبين (SOCPA).
-                        </p>
-                        <p className="font-semibold text-slate-800">
-                          {exemption.label}
-                          {entity.classification !== 'medium_large'
-                            ? ' — قوائم معدّة من قِبل الإدارة وغير مراجعة.'
-                            : '.'}
-                        </p>
-                      </div>
-
-                      {/* Statement 1: Balance Sheet */}
-                      <div className="space-y-2">
-                        <h4 className="text-xs font-bold text-slate-900 border-b border-slate-200 pb-1.5">
-                          1. قائمة المركز المالي كما في {entity.fiscalYearLabel}-
-                          {entity.fiscalYearEnd}
-                        </h4>
-                        <table className="w-full text-[11px]">
-                          <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
-                            <tr>
-                              <th className="px-2.5 py-1.5 text-right font-semibold">
-                                البند
-                              </th>
-                              <th className="px-2.5 py-1.5 text-left font-semibold">
-                                القيمة (ر.س)
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            <tr>
-                              <td className="px-2.5 py-1.5">
-                                النقدية بالصندوق ولدى البنوك
-                              </td>
-                              <td
-                                className="px-2.5 py-1.5 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                {formatNumber(statements.cashAndEquivalents)}
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="px-2.5 py-1.5">
-                                الذمم المدينة التجارية بالصافي
-                              </td>
-                              <td
-                                className="px-2.5 py-1.5 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                {formatNumber(statements.accountsReceivable)}
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="px-2.5 py-1.5">المخزون السلعي</td>
-                              <td
-                                className="px-2.5 py-1.5 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                {formatNumber(statements.inventory)}
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="px-2.5 py-1.5">
-                                مصروفات مدفوعة مقدماً وأرصدة مدينة أخرى
-                              </td>
-                              <td
-                                className="px-2.5 py-1.5 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                {formatNumber(
-                                  statements.prepaidAndOtherCurrentAssets
-                                )}
-                              </td>
-                            </tr>
-                            <tr className="bg-slate-50 font-semibold">
-                              <td className="px-2.5 py-1.5">
-                                مجموع الأصول المتداولة
-                              </td>
-                              <td
-                                className="px-2.5 py-1.5 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                {formatNumber(statements.totalCurrentAssets)}
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="px-2.5 py-1.5">
-                                الممتلكات والآلات والمعدات والأصول غير الملموسة
-                              </td>
-                              <td
-                                className="px-2.5 py-1.5 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                {formatNumber(statements.totalNonCurrentAssets)}
-                              </td>
-                            </tr>
-                            <tr className="bg-emerald-50 font-bold text-emerald-950 border-y border-emerald-200">
-                              <td className="px-2.5 py-2">إجمالي الأصول</td>
-                              <td
-                                className="px-2.5 py-2 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                {formatNumber(statements.totalAssets)}
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="px-2.5 py-1.5">
-                                الالتزامات المتداولة
-                              </td>
-                              <td
-                                className="px-2.5 py-1.5 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                {formatNumber(
-                                  statements.totalCurrentLiabilities
-                                )}
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="px-2.5 py-1.5">
-                                الالتزامات غير المتداولة
-                              </td>
-                              <td
-                                className="px-2.5 py-1.5 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                {formatNumber(
-                                  statements.totalNonCurrentLiabilities
-                                )}
-                              </td>
-                            </tr>
-                            <tr className="bg-slate-50 font-semibold">
-                              <td className="px-2.5 py-1.5">
-                                مجموع الالتزامات
-                              </td>
-                              <td
-                                className="px-2.5 py-1.5 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                {formatNumber(statements.totalLiabilities)}
-                              </td>
-                            </tr>
-                            <tr className="bg-slate-50 font-semibold">
-                              <td className="px-2.5 py-1.5">
-                                مجموع حقوق الملكية
-                              </td>
-                              <td
-                                className="px-2.5 py-1.5 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                {formatNumber(statements.totalEquity)}
-                              </td>
-                            </tr>
-                            <tr className="bg-emerald-50 font-bold text-emerald-950 border-y border-emerald-200">
-                              <td className="px-2.5 py-2">
-                                إجمالي الالتزامات وحقوق الملكية
-                              </td>
-                              <td
-                                className="px-2.5 py-2 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                {formatNumber(
-                                  statements.totalLiabilitiesAndEquity
-                                )}
-                              </td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-
-                    {/* PDF Page 1 Footer */}
-                    <div className="pt-3 border-t border-slate-200 flex items-center justify-between text-[10px] text-slate-400">
-                      <span>{entity.entityName} — قوائم SOCPA</span>
-                      <span className="font-mono-num">صفحة 1 من 3</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* PAGE 2: Income Statement */}
-              {(pageFocus === 'all' || pageFocus === 2) && (
-                <div
-                  className="mx-auto bg-white text-slate-900 shadow-2xl rounded-sm transition-all"
-                  style={{
-                    width: `${Math.round(720 * zoomScale)}px`,
-                    minHeight: `${Math.round(980 * zoomScale)}px`,
-                    padding: `${Math.round(36 * zoomScale)}px`,
-                  }}
-                >
-                  <div
-                    className={`h-full flex flex-col justify-between gap-6 ${
-                      showMarginGuides
-                        ? 'border border-dashed border-sky-300/80 p-4'
-                        : ''
-                    }`}
-                  >
-                    <div className="space-y-5">
-                      {/* Running Page Header */}
-                      <div className="flex items-center justify-between text-[11px] text-slate-500 border-b border-slate-200 pb-2.5">
-                        <span className="font-semibold text-slate-800">
-                          {entity.entityName}
-                        </span>
-                        <span className="font-mono-num">
-                          السنة المالية {entity.fiscalYearLabel}
-                        </span>
-                      </div>
-
-                      <div className="space-y-2.5">
-                        <h4 className="text-xs font-bold text-slate-900 border-b border-slate-200 pb-1.5">
-                          2. قائمة الدخل عن السنة المالية المنتهية في{' '}
-                          {entity.fiscalYearLabel}-{entity.fiscalYearEnd}
-                        </h4>
-                        <table className="w-full text-[11px]">
-                          <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
-                            <tr>
-                              <th className="px-2.5 py-1.5 text-right font-semibold">
-                                البند
-                              </th>
-                              <th className="px-2.5 py-1.5 text-left font-semibold">
-                                القيمة (ر.س)
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            <tr>
-                              <td className="px-2.5 py-2">
-                                إيرادات النشاط الرئيسي (المبيعات)
-                              </td>
-                              <td
-                                className="px-2.5 py-2 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                {formatNumber(statements.operatingRevenue)}
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="px-2.5 py-2">تكلفة الإيرادات</td>
-                              <td
-                                className="px-2.5 py-2 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                ({formatNumber(statements.costOfRevenue)})
-                              </td>
-                            </tr>
-                            <tr className="bg-slate-50 font-semibold">
-                              <td className="px-2.5 py-2">مجمل الربح</td>
-                              <td
-                                className="px-2.5 py-2 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                {formatNumber(statements.grossProfit)}
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="px-2.5 py-2">
-                                إيرادات تشغيلية أخرى
-                              </td>
-                              <td
-                                className="px-2.5 py-2 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                {formatNumber(statements.otherRevenue)}
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="px-2.5 py-2">
-                                الرواتب والأجور ومنافع الموظفين
-                              </td>
-                              <td
-                                className="px-2.5 py-2 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                ({formatNumber(statements.salariesAndWages)})
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="px-2.5 py-2">مصروفات الإيجار</td>
-                              <td
-                                className="px-2.5 py-2 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                ({formatNumber(statements.rentExpense)})
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="px-2.5 py-2">
-                                مصروفات عمومية وإدارية وتسويقية
-                              </td>
-                              <td
-                                className="px-2.5 py-2 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                ({formatNumber(statements.generalAdminExpenses)})
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="px-2.5 py-2">
-                                مصروف الإهلاك والإطفاء
-                              </td>
-                              <td
-                                className="px-2.5 py-2 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                ({formatNumber(statements.depreciationExpense)})
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="px-2.5 py-2">تكاليف التمويل</td>
-                              <td
-                                className="px-2.5 py-2 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                ({formatNumber(statements.financeCosts)})
-                              </td>
-                            </tr>
-                            <tr>
-                              <td className="px-2.5 py-2">
-                                مخصص الزكاة الشرعية للسنة
-                              </td>
-                              <td
-                                className="px-2.5 py-2 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                ({formatNumber(statements.zakatExpense)})
-                              </td>
-                            </tr>
-                            <tr className="bg-emerald-50 font-bold text-emerald-950 border-y border-emerald-200">
-                              <td className="px-2.5 py-2.5">
-                                صافي الربح / (الخسارة) للسنة
-                              </td>
-                              <td
-                                className="px-2.5 py-2.5 font-mono-num text-left"
-                                dir="ltr"
-                              >
-                                {formatNumber(statements.netProfit)}
-                              </td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-
-                    {/* PDF Page 2 Footer */}
-                    <div className="pt-3 border-t border-slate-200 flex items-center justify-between text-[10px] text-slate-400">
-                      <span>{entity.entityName} — قائمة الدخل</span>
-                      <span className="font-mono-num">صفحة 2 من 3</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* PAGE 3: Equity, Cash Flows & Notes */}
-              {(pageFocus === 'all' || pageFocus === 3) && (
-                <div
-                  className="mx-auto bg-white text-slate-900 shadow-2xl rounded-sm transition-all"
-                  style={{
-                    width: `${Math.round(720 * zoomScale)}px`,
-                    minHeight: `${Math.round(980 * zoomScale)}px`,
-                    padding: `${Math.round(36 * zoomScale)}px`,
-                  }}
-                >
-                  <div
-                    className={`h-full flex flex-col justify-between gap-6 ${
-                      showMarginGuides
-                        ? 'border border-dashed border-sky-300/80 p-4'
-                        : ''
-                    }`}
-                  >
-                    <div className="space-y-6">
-                      {/* Running Page Header */}
-                      <div className="flex items-center justify-between text-[11px] text-slate-500 border-b border-slate-200 pb-2.5">
-                        <span className="font-semibold text-slate-800">
-                          {entity.entityName}
-                        </span>
-                        <span className="font-mono-num">
-                          السنة المالية {entity.fiscalYearLabel}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                        {/* Equity */}
-                        <div className="space-y-2">
-                          <h4 className="text-xs font-bold text-slate-900 border-b border-slate-200 pb-1.5">
-                            3. قائمة التغيرات في حقوق الملكية
-                          </h4>
-                          <table className="w-full text-[11px]">
-                            <tbody className="divide-y divide-slate-100">
-                              <tr>
-                                <td className="py-1.5">رأس المال المدفوع</td>
-                                <td
-                                  className="py-1.5 font-mono-num text-left"
-                                  dir="ltr"
-                                >
-                                  {formatNumber(statements.paidUpCapital)}
-                                </td>
-                              </tr>
-                              <tr>
-                                <td className="py-1.5">الاحتياطي النظامي</td>
-                                <td
-                                  className="py-1.5 font-mono-num text-left"
-                                  dir="ltr"
-                                >
-                                  {formatNumber(statements.statutoryReserve)}
-                                </td>
-                              </tr>
-                              <tr>
-                                <td className="py-1.5">
-                                  الأرباح المبقاة أول المدة
-                                </td>
-                                <td
-                                  className="py-1.5 font-mono-num text-left"
-                                  dir="ltr"
-                                >
-                                  {formatNumber(
-                                    statements.retainedEarningsBeginning
-                                  )}
-                                </td>
-                              </tr>
-                              <tr>
-                                <td className="py-1.5">صافي ربح / (خسارة) السنة</td>
-                                <td
-                                  className="py-1.5 font-mono-num text-left"
-                                  dir="ltr"
-                                >
-                                  {formatNumber(statements.netProfit)}
-                                </td>
-                              </tr>
-                              <tr>
-                                <td className="py-1.5">توزيعات الأرباح</td>
-                                <td
-                                  className="py-1.5 font-mono-num text-left"
-                                  dir="ltr"
-                                >
-                                  ({formatNumber(statements.dividendsDeclared)})
-                                </td>
-                              </tr>
-                              <tr>
-                                <td className="py-1.5">جاري الشركاء (صافي)</td>
-                                <td
-                                  className="py-1.5 font-mono-num text-left"
-                                  dir="ltr"
-                                >
-                                  {formatNumber(
-                                    statements.partnersCurrentAccountNet
-                                  )}
-                                </td>
-                              </tr>
-                              <tr className="font-bold bg-slate-50">
-                                <td className="py-2">إجمالي حقوق الملكية</td>
-                                <td
-                                  className="py-2 font-mono-num text-left"
-                                  dir="ltr"
-                                >
-                                  {formatNumber(statements.totalEquity)}
-                                </td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
-
-                        {/* Cash Flow */}
-                        <div className="space-y-2">
-                          <h4 className="text-xs font-bold text-slate-900 border-b border-slate-200 pb-1.5">
-                            4. قائمة التدفقات النقدية (الطريقة غير المباشرة)
-                          </h4>
-                          <table className="w-full text-[11px]">
-                            <tbody className="divide-y divide-slate-100">
-                              <tr>
-                                <td className="py-1.5">
-                                  صافي التدفق من الأنشطة التشغيلية
-                                </td>
-                                <td
-                                  className="py-1.5 font-mono-num text-left"
-                                  dir="ltr"
-                                >
-                                  {formatNumber(statements.cashFlowOperating)}
-                                </td>
-                              </tr>
-                              <tr>
-                                <td className="py-1.5">
-                                  صافي التدفق من الأنشطة الاستثمارية
-                                </td>
-                                <td
-                                  className="py-1.5 font-mono-num text-left"
-                                  dir="ltr"
-                                >
-                                  {formatNumber(statements.cashFlowInvesting)}
-                                </td>
-                              </tr>
-                              <tr>
-                                <td className="py-1.5">
-                                  صافي التدفق من الأنشطة التمويلية
-                                </td>
-                                <td
-                                  className="py-1.5 font-mono-num text-left"
-                                  dir="ltr"
-                                >
-                                  {formatNumber(statements.cashFlowFinancing)}
-                                </td>
-                              </tr>
-                              <tr className="font-bold bg-slate-50">
-                                <td className="py-2">
-                                  النقدية وما في حكمها نهاية السنة
-                                </td>
-                                <td
-                                  className="py-2 font-mono-num text-left"
-                                  dir="ltr"
-                                >
-                                  {formatNumber(statements.cashAndEquivalents)}
-                                </td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-
-                      {/* Notes */}
-                      <div className="space-y-2 text-[11px] text-slate-700 border-t border-slate-200 pt-4 leading-relaxed">
-                        <h4 className="text-xs font-bold text-slate-900">
-                          5. الإيضاحات المتممة للقوائم المالية
-                        </h4>
-                        <p>
-                          <strong>1. التعريف والنشاط:</strong>{' '}
-                          {entity.entityName}، {entity.legalForm}، مسجلة بالسجل
-                          التجاري رقم {entity.crNumber}، وتزاول نشاط{' '}
-                          {entity.isicDescription} (رمز ISIC: {entity.isicCode}).
-                        </p>
-                        <p>
-                          <strong>2. أسس الإعداد:</strong> أُعدت هذه القوائم
-                          المالية بالريال السعودي وفق المعيار الدولي للتقرير
-                          المالي للمنشآت الصغيرة ومتوسطة الحجم المعتمد في
-                          المملكة العربية السعودية (SOCPA).
-                        </p>
-                        <p>
-                          <strong>3. الزكاة الشرعية:</strong> تم احتساب مخصص
-                          الزكاة التقديري بمبلغ{' '}
-                          {formatSar(statements.zakatExpense)} وتقديمه ضمن
-                          الالتزامات المتداولة.
-                        </p>
-                      </div>
-
-                      {declaration.signatoryName && (
-                        <div className="pt-4 border-t border-slate-200 flex items-center justify-between gap-4 text-[11px] text-slate-700">
-                          <div>
-                            <div className="font-semibold text-slate-900">
-                              اعتماد الإدارة: {declaration.signatoryName}
-                            </div>
-                            <div className="text-slate-500">
-                              الصفة: {declaration.signatoryRole}
-                            </div>
-                          </div>
-                          {declaration.signatureDataUrl &&
-                          declaration.signatureDataUrl.startsWith('data:') ? (
-                            <img
-                              src={declaration.signatureDataUrl}
-                              alt="التوقيع الإلكتروني المعتمد"
-                              className="h-12 border border-slate-200 rounded bg-white px-2"
-                            />
-                          ) : declaration.otpVerified ? (
-                            <span className="text-[11px] font-semibold text-emerald-700 border border-emerald-200 bg-emerald-50 px-2.5 py-1 rounded">
-                              توقيع إلكتروني موثق (OTP)
-                            </span>
-                          ) : null}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* PDF Page 3 Footer */}
-                    <div className="pt-3 border-t border-slate-200 flex items-center justify-between text-[10px] text-slate-400">
-                      <span>{entity.entityName} — الإيضاحات والاعتماد</span>
-                      <span className="font-mono-num">صفحة 3 من 3</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            <OfficialQawaemPackage
+              entity={entity}
+              declaration={declaration}
+              financials={financials}
+              detailedLines={detailedLines}
+              statements={statements}
+              payment={payment}
+              pageFilter={pageFocus}
+              paperMode
+              showMarginGuides={showMarginGuides}
+              zoomScale={zoomScale}
+            />
           )}
         </div>
       </div>

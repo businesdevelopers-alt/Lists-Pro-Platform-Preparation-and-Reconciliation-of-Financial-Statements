@@ -1,9 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   CheckCircle2,
   FileSpreadsheet,
   FileText,
   Loader2,
+  Sparkles,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -11,11 +13,15 @@ import * as XLSX from 'xlsx';
 import type {
   DocumentCategory,
   FinancialInputsHalalas,
+  MappedAccountRow,
+  QawaemFieldId,
   TrialBalanceRow,
   UploadedDocument,
 } from '../types/qawaem';
 import {
+  QAWAEM_TAXONOMY,
   SAMPLE_TRIAL_BALANCE_ROWS,
+  formatNumber,
   formatSar,
   halalasToSar,
 } from '../utils/accounting';
@@ -24,21 +30,46 @@ import { parseTrialBalanceFile } from '../utils/trialBalanceParser';
 interface Stage3DocumentsProps {
   documents: UploadedDocument[];
   trialBalanceCount: number;
+  mappedAccounts: MappedAccountRow[];
   financials: FinancialInputsHalalas;
   onAddDocument: (doc: UploadedDocument) => void;
   onRemoveDocument: (id: string) => void;
   onTrialBalanceParsed: (rows: TrialBalanceRow[]) => void;
+  onMappingsUpdated: (mapped: MappedAccountRow[]) => void;
   onPrev: () => void;
   onNext: () => void;
 }
 
+const TAXONOMY_GROUPS: Array<{
+  label: string;
+  sections: Array<
+    | 'current_assets'
+    | 'non_current_assets'
+    | 'current_liabilities'
+    | 'non_current_liabilities'
+    | 'equity'
+    | 'revenue'
+    | 'cost_of_revenue'
+    | 'operating_expenses'
+    | 'other_expenses'
+  >;
+}> = [
+  { label: 'الأصول (ما تملكه المنشأة)', sections: ['current_assets', 'non_current_assets'] },
+  { label: 'الالتزامات (ما على المنشأة)', sections: ['current_liabilities', 'non_current_liabilities'] },
+  { label: 'رأس المال وحقوق الملكية', sections: ['equity'] },
+  { label: 'الإيرادات', sections: ['revenue'] },
+  { label: 'تكلفة الإيرادات والمصروفات', sections: ['cost_of_revenue', 'operating_expenses', 'other_expenses'] },
+];
+
 export const Stage3Documents: React.FC<Stage3DocumentsProps> = ({
   documents,
   trialBalanceCount,
+  mappedAccounts,
   financials,
   onAddDocument,
   onRemoveDocument,
   onTrialBalanceParsed,
+  onMappingsUpdated,
   onPrev,
   onNext,
 }) => {
@@ -46,6 +77,7 @@ export const Stage3Documents: React.FC<Stage3DocumentsProps> = ({
   const [parsing, setParsing] = useState(false);
   const [parsingFileName, setParsingFileName] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [filterMode, setFilterMode] = useState<'all' | 'unmapped'>('all');
 
   const handleTrialBalanceFile = async (file: File | undefined) => {
     if (!file) return;
@@ -119,7 +151,24 @@ export const Stage3Documents: React.FC<Stage3DocumentsProps> = ({
     });
   };
 
-  // Compute the 5-category classification totals extracted from the uploaded file
+  const handleRowMappingChange = (
+    rowId: string,
+    nextField: QawaemFieldId | 'unmapped'
+  ) => {
+    const nextMapped: MappedAccountRow[] = mappedAccounts.map((row) =>
+      row.id === rowId
+        ? {
+            ...row,
+            mappedFieldId: nextField,
+            matchSource: nextField === 'unmapped' ? 'unmapped' : 'manual',
+            confidence: nextField === 'unmapped' ? 'low' : 'high',
+            manualOverride: true,
+          }
+        : row
+    );
+    onMappingsUpdated(nextMapped);
+  };
+
   const fiveCategorySummary = useMemo(() => {
     const capitalAndEquity =
       (financials.paid_up_capital || 0) +
@@ -167,6 +216,33 @@ export const Stage3Documents: React.FC<Stage3DocumentsProps> = ({
 
   const tbDocs = documents.filter((d) => d.category === 'trial_balance');
   const otherDocs = documents.filter((d) => d.category !== 'trial_balance');
+  const latestTbDoc = tbDocs[0];
+  const isPdfOrImageSource = Boolean(
+    latestTbDoc && /\.(pdf|png|jpe?g|webp)$/i.test(latestTbDoc.fileName)
+  );
+
+  const tbTotals = useMemo(() => {
+    const totalDebit = mappedAccounts.reduce((s, r) => s + r.debitHalalas, 0);
+    const totalCredit = mappedAccounts.reduce((s, r) => s + r.creditHalalas, 0);
+    const diff = totalDebit - totalCredit;
+    const unmappedCount = mappedAccounts.filter(
+      (r) => r.mappedFieldId === 'unmapped'
+    ).length;
+    return {
+      totalDebit,
+      totalCredit,
+      diff,
+      isBalanced: Math.abs(diff) <= 100,
+      unmappedCount,
+    };
+  }, [mappedAccounts]);
+
+  const visibleAccounts = useMemo(() => {
+    if (filterMode === 'unmapped') {
+      return mappedAccounts.filter((r) => r.mappedFieldId === 'unmapped');
+    }
+    return mappedAccounts;
+  }, [mappedAccounts, filterMode]);
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-6">
@@ -176,7 +252,7 @@ export const Stage3Documents: React.FC<Stage3DocumentsProps> = ({
             المرحلة 3: رفع المستندات المالية واستخراج الحسابات
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            ارفع ميزان المراجعة من برنامجك المحاسبي، فتُقرأ حساباته وتُوزّع تلقائياً على التصنيفات الخمسة لتراجعها قبل الحفظ. هذه الخطوة اختيارية — يمكنك إدخال الأرقام يدوياً في المرحلة التالية.
+            ارفع ميزان المراجعة من برنامجك المحاسبي، فتُقرأ حساباته وتُوزّع على بنود القوائم لتراجعها قبل الحفظ. هذه الخطوة اختيارية — يمكنك إدخال الأرقام يدوياً في المرحلة التالية.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -219,7 +295,7 @@ export const Stage3Documents: React.FC<Stage3DocumentsProps> = ({
         </div>
       </div>
 
-      {/* Prominent Drag-and-Drop Zone matching reference UI */}
+      {/* Prominent Drag-and-Drop Zone */}
       <label
         onDragOver={(e) => {
           e.preventDefault();
@@ -231,7 +307,7 @@ export const Stage3Documents: React.FC<Stage3DocumentsProps> = ({
           setDragActive(false);
           void handleTrialBalanceFile(e.dataTransfer.files?.[0]);
         }}
-        className={`block w-full py-12 px-6 rounded-xl border-2 border-dashed text-center transition-colors cursor-pointer ${
+        className={`block w-full py-10 px-6 rounded-xl border-2 border-dashed text-center transition-colors cursor-pointer ${
           dragActive
             ? 'border-blue-600 bg-blue-50/60'
             : 'border-blue-300/80 hover:border-blue-500 bg-slate-50/30'
@@ -246,10 +322,10 @@ export const Stage3Documents: React.FC<Stage3DocumentsProps> = ({
           <div className="text-sm font-bold text-slate-900">
             {parsing
               ? `جاري قراءة المستند (${parsingFileName || ''}) واستخراج الحسابات وتصنيفها تلقائياً...`
-              : 'اسحب ميزان المراجعة (PDF أو Excel / CSV) وأفلته هنا، أو اضغط للاختيار'}
+              : 'اسحب ميزان المراجعة وأفلته هنا، أو اضغط للاختيار'}
           </div>
           <div className="text-xs text-slate-500">
-            يدعم ملفات PDF متعددة الصفحات (قيود، زوهو، دفترة، وافق، أودو)، وملفات Excel (.xlsx) وCSV والصور — حتى 15 ميجابايت
+            ملف Excel (.xlsx) أو CSV، أو PDF متعددة الصفحات أو صورة للميزان — حتى 15 ميجابايت
           </div>
         </div>
         <input
@@ -272,11 +348,11 @@ export const Stage3Documents: React.FC<Stage3DocumentsProps> = ({
 
       {/* Uploaded Trial Balance File Row */}
       {tbDocs.length > 0 && (
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           {tbDocs.map((doc) => (
             <div
               key={doc.id}
-              className="px-4 py-3 rounded-xl border border-slate-200 bg-white flex items-center justify-between gap-3"
+              className="px-4 py-3 rounded-xl border border-slate-200 bg-white flex flex-wrap items-center justify-between gap-3"
             >
               <div className="flex items-center gap-2.5 min-w-0">
                 <FileText className="w-4 h-4 text-emerald-700 shrink-0" />
@@ -285,9 +361,9 @@ export const Stage3Documents: React.FC<Stage3DocumentsProps> = ({
                 </span>
               </div>
 
-              <div className="flex items-center gap-3 shrink-0">
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
                 {doc.parsedRowCount !== undefined && (
-                  <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-md">
+                  <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md">
                     تم استيراد {doc.parsedRowCount} حساباً
                   </span>
                 )}
@@ -305,14 +381,180 @@ export const Stage3Documents: React.FC<Stage3DocumentsProps> = ({
         </div>
       )}
 
-      {/* Automatic 5-Category Classification Preview after extraction */}
+      {/* Interactive Per-Account Classification Review Table (matches customer workflow) */}
+      {mappedAccounts.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-violet-50 border border-violet-200 text-violet-800 font-semibold">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>صنّفها المحرك الذكي</span>
+              </span>
+              {isPdfOrImageSource && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-50 border border-amber-200 text-amber-900 font-semibold">
+                  <span>قُرئ من PDF — طابق المبالغ مع المستند</span>
+                </span>
+              )}
+              {tbTotals.isBalanced ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 font-semibold">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>
+                    الميزان متوازن ({formatNumber(tbTotals.totalDebit)} ر.س)
+                  </span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-red-50 border border-red-200 text-red-800 font-semibold">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span>
+                    فرق توازن الميزان: {formatSar(Math.abs(tbTotals.diff))}
+                  </span>
+                </span>
+              )}
+            </div>
+
+            {tbTotals.unmappedCount > 0 && (
+              <div className="inline-flex p-0.5 bg-slate-100 rounded-lg text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setFilterMode('all')}
+                  className={`px-2.5 py-1 rounded-md font-semibold cursor-pointer ${
+                    filterMode === 'all'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-600'
+                  }`}
+                >
+                  كل الحسابات ({mappedAccounts.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFilterMode('unmapped')}
+                  className={`px-2.5 py-1 rounded-md font-semibold cursor-pointer ${
+                    filterMode === 'unmapped'
+                      ? 'bg-white text-amber-800 shadow-sm'
+                      : 'text-slate-600'
+                  }`}
+                >
+                  لا يُستورد ({tbTotals.unmappedCount})
+                </button>
+              </div>
+            )}
+          </div>
+
+          <p className="text-xs text-slate-600">
+            راجع البند المقترح لكل حساب وغيّره إن لزم. الحسابات المعلّمة «لا يُستورد» لن تُنقل — مثل أرصدة أول المدة أو الحسابات الوسيطة التي تُدخل يدوياً.
+          </p>
+
+          <div className="border border-slate-200 rounded-xl overflow-hidden">
+            <div className="max-h-[420px] overflow-y-auto overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 sticky top-0 z-10">
+                  <tr>
+                    <th className="px-4 py-3 text-right font-semibold">الحساب</th>
+                    <th className="px-4 py-3 text-center font-semibold">الرصيد</th>
+                    <th className="px-4 py-3 text-right font-semibold">
+                      البند في القوائم
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {visibleAccounts.map((row) => {
+                    const isUnmapped = row.mappedFieldId === 'unmapped';
+                    const isDebit = row.endingNetHalalas >= 0;
+                    const absBalance = Math.abs(row.endingNetHalalas);
+                    return (
+                      <tr
+                        key={row.id}
+                        className={
+                          isUnmapped
+                            ? 'bg-amber-50/55 hover:bg-amber-50'
+                            : 'hover:bg-slate-50/70'
+                        }
+                      >
+                        <td className="px-4 py-2.5">
+                          <div className="font-semibold text-slate-900">
+                            {row.accountName}
+                          </div>
+                          {row.accountCode && (
+                            <div className="text-[10px] font-mono-num text-slate-400">
+                              {row.accountCode}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-center whitespace-nowrap">
+                          <span
+                            className="font-mono-num font-bold text-slate-900"
+                            dir="ltr"
+                          >
+                            {formatNumber(absBalance)}
+                          </span>{' '}
+                          <span className="text-[11px] text-slate-500">
+                            {isDebit ? 'مدين' : 'دائن'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 min-w-[230px]">
+                          <select
+                            value={row.mappedFieldId}
+                            onChange={(e) =>
+                              handleRowMappingChange(
+                                row.id,
+                                e.target.value as QawaemFieldId | 'unmapped'
+                              )
+                            }
+                            aria-label={`تصنيف حساب ${row.accountName}`}
+                            className={`w-full h-9 px-3 rounded-lg border text-xs font-medium focus:outline-none focus:ring-2 focus:ring-blue-600 ${
+                              isUnmapped
+                                ? 'bg-white border-amber-300 text-amber-900'
+                                : 'bg-white border-slate-300 text-slate-800'
+                            }`}
+                          >
+                            <option value="unmapped">لا يُستورد</option>
+                            {TAXONOMY_GROUPS.map((group) => (
+                              <optgroup key={group.label} label={group.label}>
+                                {QAWAEM_TAXONOMY.filter((t) =>
+                                  group.sections.includes(t.section)
+                                ).map((t) => (
+                                  <option key={t.id} value={t.id}>
+                                    {t.arabicLabel}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            ))}
+                          </select>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
+              <span className="text-xs text-slate-600">
+                {tbTotals.unmappedCount > 0
+                  ? `${tbTotals.unmappedCount} حسابات لن تُستورد — غيّر بندها إن أردت نقلها.`
+                  : 'تم تصنيف جميع الحسابات وهي جاهزة للنقل إلى المرحلة 4.'}
+              </span>
+              <button
+                type="button"
+                onClick={onNext}
+                className="px-5 py-2 bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold rounded-lg inline-flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>اعتماد التصنيف ونقله إلى البيانات المالية</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Automatic 5-Category Classification Summary */}
       {trialBalanceCount > 0 && (
         <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/40 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <div className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
               <CheckCircle2 className="w-4 h-4 text-emerald-700" />
               <span>
-                تم تصنيف وتوزيع الحسابات المستخرجة تلقائياً على بنود المرحلة 4 (وبانتظار الخطوة 6 للمراجعة)
+                ملخص توزيع الحسابات المستخرجة على خطوات المرحلة 4
               </span>
             </div>
           </div>
@@ -415,7 +657,9 @@ export const Stage3Documents: React.FC<Stage3DocumentsProps> = ({
           onClick={onNext}
           className="px-6 py-2.5 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded-lg transition-colors cursor-pointer"
         >
-          متابعة إلى البيانات المالية
+          {mappedAccounts.length > 0
+            ? 'متابعة إلى البيانات المالية'
+            : 'تخطّي والإدخال يدوياً ←'}
         </button>
       </div>
     </div>
