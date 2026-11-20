@@ -1,0 +1,6 @@
+{
+  "name": "منصة قوائم برو — إعداد ومطابقة القوائم المالية",
+  "description": "منصة سحابية متكاملة لإعداد وفحص ومطابقة القوائم المالية وفق معايير SOCPA وبنود منصة قوائم السعودية",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
